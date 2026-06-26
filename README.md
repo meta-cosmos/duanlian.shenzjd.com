@@ -1,6 +1,6 @@
 # 🎯 duanlian.shenzjd.com
 
-一个基于 Git 和 Cloudflare Workers 的极简短链接系统。灵感来自 [miantiao.me/posts/hink/](https://miantiao.me/posts/hink/)。
+一个基于 Git 和 Cloudflare Workers 的极简短链接系统。
 
 ## 核心原理
 
@@ -15,7 +15,6 @@
 - 🌐 Web 页面一键生成短链（无需终端）
 - 🔑 GitHub OAuth 登录（仅 repo owner 可操作）
 - 📋 一键复制短链
-- 🔄 GitHub Action 自动更新 README 短链表格
 
 ## 部署
 
@@ -78,27 +77,9 @@ git push origin main
 ```
 .
 ├── README.md
-├── worker.js              # Cloudflare Worker（前端 + OAuth + API + 重定向）
-├── wrangler.toml           # 部署配置
-└── .github/
-    └── workflows/
-        └── update-readme.yml   # 自动更新短链表格
+├── worker.js          # Cloudflare Worker（前端 + OAuth + API + 重定向）
+└── wrangler.toml      # 部署配置
 ```
-
-## 短链列表
-
-<!-- SHORT_LINKS_START -->
-| 短链 | 完整短链 | 目标链接 | 创建时间 |
-|------|----------|----------|----------|
-| /4975af | https://duanlian.shenzjd.com/4975af | https://github.com/wu529778790/duanlian.shenzjd.com | 2025-12-25 |
-| /d5becb | https://duanlian.shenzjd.com/d5becb | https://shenzjd.com | 2025-12-25 |
-| /980fdc | https://duanlian.shenzjd.com/980fdc | https://blog.shenzjd.com | 2025-12-25 |
-| /398667 | https://duanlian.shenzjd.com/398667 | https://alist.shenzjd.com/ | 2025-12-25 |
-| /2b3e90 | https://duanlian.shenzjd.com/2b3e90 | https://news.shenzjd.com/ | 2025-12-25 |
-| /9cd1f4 | https://duanlian.shenzjd.com/9cd1f4 | https://panhub.shenzjd.com/ | 2025-12-25 |
-| /54ef62 | https://duanlian.shenzjd.com/54ef62 | https://parse.shenzjd.com/ | 2025-12-25 |
-| /d5f981 | https://duanlian.shenzjd.com/d5f981 | https://bing.shenzjd.com/ | 2025-12-25 |
-<!-- SHORT_LINKS_END -->
 
 ## 许可证
 

@@ -3,7 +3,6 @@
 
 const GITHUB_API = 'https://api.github.com'
 const GITHUB_OAUTH = 'https://github.com/login/oauth'
-const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf899d15f3f23e202'
 
 export default {
   async fetch(request, env) {
@@ -97,10 +96,12 @@ async function handleCallback(request, env) {
   const username = userData.login
 
   // 设置 cookie 并跳转回首页
-  const response = Response.redirect(new URL(request.url).origin + '/', 302)
-  response.headers.append('Set-Cookie', setCookie('gh_token', tokenData.access_token))
-  response.headers.append('Set-Cookie', setCookie('gh_user', username))
-  return response
+  const headers = new Headers({
+    Location: new URL(request.url).origin + '/',
+  })
+  headers.append('Set-Cookie', setCookie('gh_token', tokenData.access_token))
+  headers.append('Set-Cookie', setCookie('gh_user', username))
+  return new Response(null, { status: 302, headers })
 }
 
 function handleLogout() {
@@ -145,13 +146,22 @@ async function handleCreateLink(request, env) {
   const refData = await refRes.json()
   const headSha = refData.object.sha
 
-  // 2. 创建空树 commit（等价于 git commit --allow-empty）
+  // 2. 获取当前 commit 的 tree SHA
+  const headCommitRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits/${headSha}`, { headers })
+  if (!headCommitRes.ok) {
+    const err = await headCommitRes.text()
+    return Response.json({ error: `获取 commit 失败: ${err}` }, { status: 502 })
+  }
+  const headCommitData = await headCommitRes.json()
+  const treeSha = headCommitData.tree.sha
+
+  // 3. 创建 commit（tree 不变 = 空提交，仅记录短链信息在 commit message 中）
   const commitRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: targetUrl,
-      tree: EMPTY_TREE_SHA,
+      tree: treeSha,
       parents: [headSha],
     }),
   })
