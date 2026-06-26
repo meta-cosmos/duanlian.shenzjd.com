@@ -18,6 +18,7 @@ export default {
       if (pathname === '/logout') return handleLogout()
       if (pathname === '/api/links' && request.method === 'POST') return handleCreateLink(request, env)
       if (pathname === '/api/links' && request.method === 'GET') return handleListLinks(request, env)
+      if (pathname === '/api/user/links' && request.method === 'GET') return handleListUserLinks(request, env)
       if (pathname === '/api/user') return handleGetUser(request, env)
 
       // 短链重定向：/xxxxxx 或 /owner/xxxxxx
@@ -239,6 +240,49 @@ async function handleListLinks(request, env) {
       return {
         shortCode,
         shortLink: `https://${domain}/${shortCode}`,
+        targetUrl: msg,
+        createdAt: date,
+      }
+    })
+    .filter(Boolean)
+
+  return Response.json({ links })
+}
+
+// ========== 获取用户自己的短链列表 ==========
+
+async function handleListUserLinks(request, env) {
+  const user = getUser(request, env)
+  if (!user) return Response.json({ error: '请先登录' }, { status: 401 })
+
+  const headers = {
+    Authorization: `Bearer ${user.token}`,
+    'User-Agent': 'duanlian-worker',
+    Accept: 'application/vnd.github.v3+json',
+  }
+
+  // 读取用户 fork 仓库的 commit 历史
+  const res = await fetch(
+    `${GITHUB_API}/repos/${user.username}/${env.GITHUB_REPO}/commits?per_page=100`,
+    { headers }
+  )
+  if (!res.ok) {
+    // 如果 fork 不存在，返回空列表
+    return Response.json({ links: [] })
+  }
+
+  const commits = await res.json()
+  const domain = env.DOMAIN || 'duanlian.shenzjd.com'
+
+  const links = commits
+    .map(c => {
+      const msg = c.commit.message.trim()
+      if (!/^https?:\/\/.+/.test(msg)) return null
+      const shortCode = c.sha.slice(0, 6)
+      const date = c.commit.author?.date?.slice(0, 10) || ''
+      return {
+        shortCode,
+        shortLink: `https://${domain}/${user.username}/${shortCode}`,
         targetUrl: msg,
         createdAt: date,
       }
@@ -640,6 +684,8 @@ function handleHome(request, env) {
           $('#mainForm').style.display = 'none'
           window._loggedIn = false
         }
+        // 登录状态变化后重新获取链接列表
+        fetchLinks()
       } catch (e) {
         $('#loginHint').style.display = 'block'
         $('#mainForm').style.display = 'none'
@@ -648,7 +694,9 @@ function handleHome(request, env) {
 
     async function fetchLinks() {
       try {
-        const res = await fetch('/api/links')
+        // 登录用户看自己的短链，未登录看公开列表
+        const url = window._loggedIn ? '/api/user/links' : '/api/links'
+        const res = await fetch(url)
         const data = await res.json()
         if (data.links) {
           links = data.links
