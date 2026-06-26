@@ -1,0 +1,16 @@
+name = "duanlian"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+GITHUB_OWNER = "wu529778790"
+GITHUB_REPO = "duanlian.shenzjd.com"
+DOMAIN = "duanlian.shenzjd.com"
+
+# 需要通过 wrangler secret 设置以下变量：
+# GITHUB_CLIENT_ID  — GitHub OAuth App 的 Client ID
+# GITHUB_CLIENT_SECRET — GitHub OAuth App 的 Client Secret
+#
+# 设置命令：
+#   npx wrangler secret put GITHUB_CLIENT_ID
+#   npx wrangler secret put GITHUB_CLIENT_SECRET
