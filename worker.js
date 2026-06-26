@@ -19,8 +19,9 @@ export default {
       if (pathname === '/api/links' && request.method === 'POST') return handleCreateLink(request, env)
       if (pathname === '/api/user') return handleGetUser(request, env)
 
-      // 短链重定向：/xxxxxx
+      // 短链重定向：/xxxxxx 或 /owner/xxxxxx
       if (/^\/[a-f0-9]{6}$/.test(pathname)) return handleRedirect(pathname, env)
+      if (/^\/[a-zA-Z0-9-]+\/[a-f0-9]{6}$/.test(pathname)) return handleRedirect(pathname, env)
 
       return new Response('Not Found', { status: 404 })
     } catch (err) {
@@ -50,8 +51,6 @@ function getUser(request, env) {
   const token = cookies['gh_token']
   const username = cookies['gh_user']
   if (!token || !username) return null
-  // 仅允许 repo owner 操作
-  if (username !== env.GITHUB_OWNER) return null
   return { username, token }
 }
 
@@ -114,7 +113,7 @@ function handleLogout() {
 async function handleGetUser(request, env) {
   const user = getUser(request, env)
   if (!user) return Response.json({ logged_in: false })
-  return Response.json({ logged_in: true, username: user.username })
+  return Response.json({ logged_in: true, username: user.username, is_owner: user.username === env.GITHUB_OWNER })
 }
 
 // ========== 创建短链 API ==========
@@ -137,8 +136,27 @@ async function handleCreateLink(request, env) {
     Accept: 'application/vnd.github.v3+json',
   }
 
+  const isOwner = user.username === env.GITHUB_OWNER
+  let repoOwner = env.GITHUB_OWNER
+  let repoName = env.GITHUB_REPO
+
+  // 非 owner 用户需要先 fork
+  if (!isOwner) {
+    const forkRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/forks`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_branch_only: true }),
+    })
+    if (!forkRes.ok && forkRes.status !== 422) {
+      const err = await forkRes.text()
+      return Response.json({ error: `Fork 失败: ${err}` }, { status: 502 })
+    }
+    // 422 表示已 fork 过，忽略
+    repoOwner = user.username
+  }
+
   // 1. 获取当前 HEAD
-  const refRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/ref/heads/main`, { headers })
+  const refRes = await fetch(`${GITHUB_API}/repos/${repoOwner}/${repoName}/git/ref/heads/main`, { headers })
   if (!refRes.ok) {
     const err = await refRes.text()
     return Response.json({ error: `获取 ref 失败: ${err}` }, { status: 502 })
@@ -147,7 +165,7 @@ async function handleCreateLink(request, env) {
   const headSha = refData.object.sha
 
   // 2. 获取当前 commit 的 tree SHA
-  const headCommitRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits/${headSha}`, { headers })
+  const headCommitRes = await fetch(`${GITHUB_API}/repos/${repoOwner}/${repoName}/git/commits/${headSha}`, { headers })
   if (!headCommitRes.ok) {
     const err = await headCommitRes.text()
     return Response.json({ error: `获取 commit 失败: ${err}` }, { status: 502 })
@@ -156,7 +174,7 @@ async function handleCreateLink(request, env) {
   const treeSha = headCommitData.tree.sha
 
   // 3. 创建 commit（tree 不变 = 空提交，仅记录短链信息在 commit message 中）
-  const commitRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits`, {
+  const commitRes = await fetch(`${GITHUB_API}/repos/${repoOwner}/${repoName}/git/commits`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -171,8 +189,8 @@ async function handleCreateLink(request, env) {
   }
   const commitData = await commitRes.json()
 
-  // 3. 更新 ref
-  const updateRes = await fetch(`${GITHUB_API}/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/refs/heads/main`, {
+  // 4. 更新 ref
+  const updateRes = await fetch(`${GITHUB_API}/repos/${repoOwner}/${repoName}/git/refs/heads/main`, {
     method: 'PATCH',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ sha: commitData.sha }),
@@ -183,7 +201,11 @@ async function handleCreateLink(request, env) {
   }
 
   const shortCode = commitData.sha.slice(0, 6)
-  const shortLink = `https://${env.DOMAIN || 'duanlian.shenzjd.com'}/${shortCode}`
+  const domain = env.DOMAIN || 'duanlian.shenzjd.com'
+  // 非 owner 用户的短链包含用户名
+  const shortLink = isOwner
+    ? `https://${domain}/${shortCode}`
+    : `https://${domain}/${repoOwner}/${shortCode}`
 
   return Response.json({ shortCode, shortLink, targetUrl })
 }
@@ -191,8 +213,20 @@ async function handleCreateLink(request, env) {
 // ========== 短链重定向 ==========
 
 async function handleRedirect(pathname, env) {
-  const shortCode = pathname.slice(1)
-  const gitPatchUrl = `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${shortCode}.patch`
+  const parts = pathname.slice(1).split('/')
+  let repoOwner, shortCode
+
+  if (parts.length === 2) {
+    // /owner/code 格式
+    repoOwner = parts[0]
+    shortCode = parts[1]
+  } else {
+    // /code 格式（owner 的短链）
+    repoOwner = env.GITHUB_OWNER
+    shortCode = parts[0]
+  }
+
+  const gitPatchUrl = `https://github.com/${repoOwner}/${env.GITHUB_REPO}/commit/${shortCode}.patch`
 
   const patchRes = await fetch(gitPatchUrl, {
     cf: { cacheEverything: true, cacheTtlByStatus: { '200-299': 86400 } },
